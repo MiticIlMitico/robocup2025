@@ -10,7 +10,7 @@ long distanza;
 
 const int servoPin = 9;
 
-float t = 0;
+float t = 0;                                                                                                                                                                                                                  
 const float speedFactor = 0.35; 
 
 bool programmaAvviato = false; 

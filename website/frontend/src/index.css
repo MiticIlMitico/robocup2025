@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..900;1,400..900&display=swap');
+
+
+@layer base {
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      background-color: #e7fbff;
+      /* background-image: url('../public/background.png'); */
+      background-size: cover;
+      background-position: center top;
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+    }
+  }

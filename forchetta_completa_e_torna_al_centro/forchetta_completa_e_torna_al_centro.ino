@@ -343,13 +343,13 @@ void loop() {
 
     // ruota a sinistra di 45 ;
     ruota_se_stesso(45, false);
-    elay(2000);
+    delay(2000);
 
     dritto(1);
     delay(2000);
 
     ruota_se_stesso(45, true);
-    elay(2000);
+    delay(2000);
 
     dritto(2);
     delay(2000);

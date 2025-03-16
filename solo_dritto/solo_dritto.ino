@@ -236,8 +236,59 @@ void loop() {
     startScript();
 
     
-    dritto(3);
+    dritto(2);
     delay(2000);
+
+    ruota_se_stesso(45, false);
+    delay(2000);
+
+    dritto(1);
+    delay(2000);
+
+    
+    ruota_se_stesso(45, true);
+    delay(2000);
+    ruota_se_stesso(45, true);
+    delay(2000);
+    ruota_se_stesso(45, false);
+    delay(2000);
+    ruota_se_stesso(45, false);
+    delay(2000);
+    ruota_se_stesso(45, true);
+    delay(2000);
+    ruota_se_stesso(45, true);
+    delay(2000);
+
+
+    dritto(2);
+    delay(2000);
+
+    ruota_se_stesso(45, false);
+    delay(2000);
+    ruota_se_stesso(45, false);
+    delay(2000);
+    ruota_se_stesso(45, true);
+    delay(2000);
+    ruota_se_stesso(45, true);
+    delay(2000);
+    ruota_se_stesso(45, false);
+    delay(2000);
+    ruota_se_stesso(45, false);
+    delay(2000);
+
+    dritto(1);
+    delay(2000);
+
+    for (int i = 0; i < 1000; i++) {
+      ruota_se_stesso(45, true);
+      delay(2000);
+      ruota_se_stesso(45, true);
+      delay(2000);
+      ruota_se_stesso(45, false);
+      delay(2000);
+      ruota_se_stesso(45, false);
+      delay(2000);
+    }
 
     /*
     // ruota a sinistra di 45 startScript();
