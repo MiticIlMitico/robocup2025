@@ -1,6 +1,5 @@
 import React from 'react';
 import Layout from './components/Layout';
-import Home from './pages/Home';
 import CentralHome from './pages/CentralHome';
 import Team from './pages/Team';
 import Project from './pages/Project';

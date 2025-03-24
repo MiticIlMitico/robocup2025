@@ -8,6 +8,10 @@ module.exports = {
       fontFamily: {
         grotesk: ['Schibsted Grotesk', 'sans-serif'],
       },
+      animation: {
+        'bounce-slow': 'bounce 5s infinite ease-in-out',
+      },
+        
     },
   },
   plugins: [],
