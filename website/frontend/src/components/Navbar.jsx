@@ -9,9 +9,9 @@ const Navbar = () => {
       const scrollY = window.scrollY;
       
       // Imposta la visibilità dopo un tot di scroll (200px)
-      if (scrollY > 400 && !isVisible) {
+      if (scrollY > 700 && !isVisible) {
         setIsVisible(true);
-      } else if (scrollY <= 400 && isVisible) {
+      } else if (scrollY <= 700 && isVisible) {
         setIsVisible(false);
       }
 
