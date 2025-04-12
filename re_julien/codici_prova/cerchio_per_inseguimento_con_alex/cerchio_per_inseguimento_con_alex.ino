@@ -20,7 +20,7 @@ const int ruotaDX_indietro = 8;
 const int ruotaDX_avanti = 9;
 const int pinPotenzaDX = 7;
 
-const int potenza = 200;
+const int potenza = 100;
 
 // === PID ===
 
@@ -37,6 +37,9 @@ bool programmaAvviato = false;
 void setup() {
   Serial.begin(9600);
   maestroSerial.begin(9600);
+
+  Serial3.begin(9600);  // HC-05 MASTER
+  Serial3.println("START");
 
   pinMode(trigger, OUTPUT);
   pinMode(echo, INPUT);
@@ -219,8 +222,9 @@ void loop() {
     programmaAvviato = true;
 
     // Gira verso destra: curva stretta
-    cerchio_costante(7.0, 70, 255);  // ruota sinistra lenta, destra veloce
-
+    dritto(1);
+    cerchio_costante(15.0, 35, 50);  // ruota sinistra lenta, destra veloce
+    dritto(1);
     while (true);
   }
 }

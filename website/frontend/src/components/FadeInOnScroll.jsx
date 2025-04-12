@@ -6,14 +6,20 @@ function FadeInOnScroll({ children, className = '' }) {
 
   useEffect(() => {
     const el = ref.current;
+
+    // Rileva se siamo su mobile
+    const isMobile = window.innerWidth <= 768;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setVisible(true);
-          observer.unobserve(el); // Mostra una volta sola
+          observer.unobserve(el); // Attiva una volta sola
         }
       },
-      { threshold: 0.5 }
+      {
+        threshold: isMobile ? 0.2 : 0.5, // Su mobile attiva prima (più in alto)
+      }
     );
 
     if (el) observer.observe(el);

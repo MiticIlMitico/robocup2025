@@ -1,0 +1,524 @@
+from hub import light_matrix, motion_sensor, port
+import motor
+import time
+import runloop
+import distance_sensor
+
+# Costanti PID per la direzione (avanti)
+KP_FOR = 0.2
+KI_FOR = 0.0
+KD_FOR = 0.02
+
+# Costanti PID per la rotazione
+KP_GYR = 1.0# Aumentata per correzione più rapida
+KI_GYR = 0.0
+KD_GYR = 0.003
+
+# Limiti di velocità
+MAX_SPEED = 520
+MIN_SPEED = 100        # Minima velocità per il dritto
+MIN_TURN_SPEED = 100# Minima velocità per le curve con una ruota sola
+
+# Range di distanza considerato
+MAX_DISTANCE = 300
+STOP_DISTANCE = 80
+RESTART_DISTANCE = 81
+
+motion_sensor.reset_yaw(0)
+
+
+
+
+mappa = [[0 for _ in range(5)] for _ in range(6)]
+posizione = [0, 0]# parte da x=0, y=0
+orientamento = 90# VA VERSO SU (↑) lungo l’asse Y
+
+def aggiorna_posizione():
+    global posizione
+    # si muove di 1 cella nella direzione attuale
+    if orientamento == 0:
+        posizione[0] += 1
+    elif orientamento == 90:
+        posizione[1] += 1
+    elif orientamento == 180:
+        posizione[0] -= 1
+    elif orientamento == 270:
+        posizione[1] -= 1
+
+    # Limita entro 0–4 per X e 0–5 per Y
+    posizione[0] = max(0, min(posizione[0], 4))
+    posizione[1] = max(0, min(posizione[1], 5))
+
+    mappa[posizione[1]][posizione[0]] = 1
+    aggiorna_mappa_led()
+
+def aggiorna_mappa_led():
+    light_matrix.clear()
+    for y in range(1, 6):# y = 1 → 5 (solo righe visibili)
+        for x in range(5):
+            if mappa[y][x] == 1:
+                light_matrix.set_pixel(x, y - 1, 100)
+
+def aggiorna_orientamento(delta):
+    global orientamento
+    orientamento = (orientamento + delta) % 360
+
+
+
+
+
+# PID generico
+def apply_pid(target_angle, current_angle, last_error, integral, KP, KI, KD):
+    error = target_angle - current_angle
+    integral += error
+    derivative = error - last_error
+    correction = KP * error + KI * integral + KD * derivative
+    return correction, integral
+
+# Velocità dinamica dalla distanza
+def get_speed_from_distance():
+    distance = distance_sensor.distance(port.F)
+
+    if distance is None or distance > MAX_DISTANCE:
+        return MAX_SPEED
+
+    if distance <= STOP_DISTANCE:
+        return 0
+
+    return MIN_SPEED + ((MAX_SPEED - MIN_SPEED) * (min(distance / MAX_DISTANCE, 1)))
+
+# Movimento in avanti con distanza e controllo PID
+def dritto(v, temp_cm):
+    t = (temp_cm * 500) / 27# conversione cm → gradi motore
+
+    motion_sensor.reset_yaw(0)
+    runloop.until(motion_sensor.stable)
+
+    target_angle = 0
+    integral = 0
+    last_error = 0
+
+    motor.reset_relative_position(port.C, 0)
+
+    while True:
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, integral = apply_pid(target_angle, current_angle, last_error, integral, KP_FOR, KI_FOR, KD_FOR)
+        last_error = current_angle
+
+        dynamic_speed = min(get_speed_from_distance(), v)
+
+        if dynamic_speed == 0:
+            motor.stop(port.C)
+            motor.stop(port.D)
+            while distance_sensor.distance(port.F) <= RESTART_DISTANCE:
+                time.sleep(0.1)
+            continue
+
+        l_speed = int(dynamic_speed - correction)
+        r_speed = int(dynamic_speed + correction)
+
+        motor.run(port.C, r_speed)
+        motor.run(port.D, -l_speed)
+
+        if motor.relative_position(port.C) >= t:
+            break
+
+        time.sleep(0.1)
+
+    motor.stop(port.C)
+    motor.stop(port.D)
+
+# Movimento in avanti a velocità fissa e controllo PID
+def dritto_fisso(v, temp_cm):
+    t = (temp_cm * 500) / 27# conversione cm → gradi motore
+
+    motion_sensor.reset_yaw(0)
+    runloop.until(motion_sensor.stable)
+
+    target_angle = 0
+    integral = 0
+    last_error = 0
+
+    motor.reset_relative_position(port.C, 0)
+
+    while True:
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, integral = apply_pid(target_angle, current_angle, last_error, integral, KP_FOR, KI_FOR, KD_FOR)
+        last_error = current_angle
+
+        l_speed = int(v - correction)
+        r_speed = int(v + correction)
+
+        motor.run(port.C, r_speed)
+        motor.run(port.D, -l_speed)
+
+        if motor.relative_position(port.C) >= t:
+            break
+
+        time.sleep(0.1)
+
+    motor.stop(port.C)
+    motor.stop(port.D)
+
+
+# Rotazione classica
+def turn(target_angle):
+    motion_sensor.reset_yaw(0)
+    time.sleep(0.2)
+    runloop.until(motion_sensor.stable)
+
+    current_angle = motion_sensor.tilt_angles()[0]
+    integral = 0
+    last_error = target_angle - current_angle
+
+    while True:
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, integral = apply_pid(target_angle, current_angle, last_error, integral, KP_GYR, KI_GYR, KD_GYR)
+        last_error = current_angle - target_angle
+
+        l_speed = int(-correction)
+        r_speed = int(correction)
+
+        motor.run(port.C, r_speed)
+        motor.run(port.D, -l_speed)
+
+        if abs(target_angle - current_angle) < 8:
+            break
+
+    motor.stop(port.C)
+    motor.stop(port.D)
+
+# Ruota solo la sinistra per girare a destra
+def turn_right(target_angle):
+    motion_sensor.reset_yaw(0)
+    time.sleep(0.2)
+    runloop.until(motion_sensor.stable)
+
+    current_angle = motion_sensor.tilt_angles()[0]
+    integral = 0
+    last_error = target_angle - current_angle
+
+    while True:
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, integral = apply_pid(target_angle, current_angle, last_error, integral, KP_GYR, KI_GYR, KD_GYR)
+        last_error = current_angle - target_angle
+
+        l_speed = int(-correction)
+        if abs(l_speed) < MIN_TURN_SPEED:
+            l_speed = -MIN_TURN_SPEED if l_speed < 0 else MIN_TURN_SPEED
+
+        motor.stop(port.C)
+        motor.run(port.D, -l_speed)
+
+        if abs(target_angle - current_angle) < 8:
+            break
+
+    motor.stop(port.D)
+
+# Ruota solo la destra per girare a sinistra
+def turn_left(target_angle):
+    motion_sensor.reset_yaw(0)
+    time.sleep(0.2)
+    runloop.until(motion_sensor.stable)
+
+    current_angle = motion_sensor.tilt_angles()[0]
+    integral = 0
+    last_error = target_angle - current_angle
+
+    while True:
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, integral = apply_pid(target_angle, current_angle, last_error, integral, KP_GYR, KI_GYR, KD_GYR)
+        last_error = current_angle - target_angle
+
+        r_speed = int(correction)
+        if abs(r_speed) < MIN_TURN_SPEED:
+            r_speed = MIN_TURN_SPEED if r_speed > 0 else -MIN_TURN_SPEED
+
+        motor.run(port.C, r_speed)
+        motor.stop(port.D)
+
+        if abs(target_angle - current_angle) < 8:
+            break
+
+    motor.stop(port.C)
+
+
+
+# Gradi iniziali
+gradi_massimi = 100
+gradi_minimi = 0
+
+def muovi_motore_braccia():
+    global gradi_massimi
+    global gradi_minimi
+
+    gradi_massimi -= 10
+    gradi_minimi -= 10
+
+    motor.reset_relative_position(port.A, 0)
+
+    # Movimento avanti fino a gradi_massimi
+    motor.run(port.A, 200)
+    timeout = time.time() + 5
+    while motor.relative_position(port.A) < gradi_massimi:
+        if time.time() > timeout:
+            break
+        time.sleep(0.01)
+    motor.stop(port.A)
+    time.sleep(0.5)
+
+    # Movimento indietro fino a gradi_minimi
+    motor.run(port.A, -200)
+    timeout = time.time() + 5
+    while motor.relative_position(port.A) > gradi_minimi:
+        if time.time() > timeout:
+            break
+        time.sleep(0.01)
+    motor.stop(port.A)
+
+    # Regolazione dinamica
+    gradi_massimi += 3
+    gradi_minimi += 3
+
+
+
+class AlzaPinna:
+    def __init__(self, gradi_massimi):
+        self.gradi_massimi = gradi_massimi
+        self.start_time = time.time()
+        self.finished = False
+        motor.reset_relative_position(port.A, 0)
+        motor.run(port.A, 200)
+
+    def update(self):
+        if self.finished:
+            return
+
+        if motor.relative_position(port.A) >= self.gradi_massimi:
+            motor.stop(port.A)
+            self.finished = True
+        elif time.time() - self.start_time > 5:
+            motor.stop(port.A)
+            self.finished = True
+
+
+
+class TurnRight:
+    def __init__(self, target_angle):
+        self.target_angle = target_angle
+        self.integral = 0
+        self.finished = False
+        self.last_error = 0
+        motion_sensor.reset_yaw(0)
+        time.sleep(0.2)
+        runloop.until(motion_sensor.stable)
+
+    def update(self):
+        if self.finished:
+            return
+
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, self.integral = apply_pid(
+            self.target_angle, current_angle, self.last_error, self.integral,
+            KP_GYR, KI_GYR, KD_GYR
+        )
+        self.last_error = current_angle - self.target_angle
+
+        l_speed = int(-correction)
+        if abs(l_speed) < MIN_TURN_SPEED:
+            l_speed = -MIN_TURN_SPEED if l_speed < 0 else MIN_TURN_SPEED
+
+        motor.stop(port.C)
+        motor.run(port.D, -l_speed)
+
+        if abs(self.target_angle - current_angle) < 8:
+            motor.stop(port.D)
+            self.finished = True
+
+
+
+class AbbassaPinna:
+    def __init__(self, gradi_minimi):
+        self.gradi_minimi = gradi_minimi
+        self.start_time = time.time()
+        self.finished = False
+        motor.run(port.A, -200)
+
+    def update(self):
+        if self.finished:
+            return
+
+        if motor.relative_position(port.A) <= self.gradi_minimi:
+            motor.stop(port.A)
+            self.finished = True
+        elif time.time() - self.start_time > 5:
+            motor.stop(port.A)
+            self.finished = True
+
+
+
+class TurnLeft:
+    def __init__(self, target_angle):
+        self.target_angle = target_angle
+        self.integral = 0
+        self.finished = False
+        self.last_error = 0
+        motion_sensor.reset_yaw(0)
+        time.sleep(0.2)
+        runloop.until(motion_sensor.stable)
+
+    def update(self):
+        if self.finished:
+            return
+
+        current_angle = motion_sensor.tilt_angles()[0]
+        correction, self.integral = apply_pid(
+            self.target_angle, current_angle, self.last_error, self.integral,
+            KP_GYR, KI_GYR, KD_GYR
+        )
+        self.last_error = current_angle - self.target_angle
+
+        r_speed = int(correction)
+        if abs(r_speed) < MIN_TURN_SPEED:
+            r_speed = MIN_TURN_SPEED if r_speed > 0 else -MIN_TURN_SPEED
+
+        motor.run(port.C, r_speed)
+        motor.stop(port.D)
+
+        if abs(self.target_angle - current_angle) < 8:
+            motor.stop(port.C)
+            self.finished = True
+
+
+
+
+
+# Loop principale
+async def main():
+
+    while True:
+        if 0 < distance_sensor.distance(port.F) <= MAX_DISTANCE:
+            break
+
+    aggiorna_posizione()
+
+    dritto(400, 107)
+    aggiorna_posizione()
+
+    dritto(400, 107)
+    aggiorna_posizione()
+
+    dritto(400, 107)
+    aggiorna_posizione()
+
+
+    # più basso valore velocità perchè è il secondo
+    dritto_fisso(130, 71)
+
+
+    turn(900)
+    aggiorna_orientamento(-90)
+
+
+# 1 metro tuttu spasticu
+    turn(350)
+
+    gradi_massimi = 120
+    gradi_minimi = 0
+
+    for _ in range(7):
+
+        # Fase 1: alza pinna e gira a destra
+        pinna = AlzaPinna(gradi_massimi)
+        rotazione = TurnRight(target_angle=-700)
+
+        while not (pinna.finished and rotazione.finished):
+            pinna.update()
+            rotazione.update()
+            time.sleep(0.01)
+
+        time.sleep(0.2)
+
+        # Fase 2: abbassa pinna e gira a sinistra
+        abbassa = AbbassaPinna(gradi_minimi)
+        rotazione = TurnLeft(target_angle=700)
+
+        while not (abbassa.finished and rotazione.finished):
+            abbassa.update()
+            rotazione.update()
+            time.sleep(0.01)
+
+        time.sleep(0.2)
+
+        # regolazione dinamica
+        gradi_massimi += 2
+        gradi_minimi += 2
+
+    time.sleep(0.2)
+    turn_right(-500)
+    turn_left(150)
+
+    aggiorna_posizione()
+
+
+
+# 1 metro tuttu spasticu
+    turn(350)
+    for _ in range(2):
+        # Fase 1: alza pinna e gira a destra
+        pinna = AlzaPinna(gradi_massimi)
+        rotazione = TurnRight(target_angle=-700)
+
+        while not (pinna.finished and rotazione.finished):
+            pinna.update()
+            rotazione.update()
+            time.sleep(0.01)
+
+        time.sleep(0.2)
+
+        # Fase 2: abbassa pinna e gira a sinistra
+        abbassa = AbbassaPinna(gradi_minimi)
+        rotazione = TurnLeft(target_angle=700)
+
+        while not (abbassa.finished and rotazione.finished):
+            abbassa.update()
+            rotazione.update()
+            time.sleep(0.01)
+
+        time.sleep(0.2)
+
+
+
+    turn_right(-500)
+    turn_left(150)
+
+
+    global KP_GYR
+
+    KP_GYR = 0.3
+
+    turn(-900)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(-900)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(1800)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(-1800)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(1800)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(-1800)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(1800)
+    muovi_motore_braccia()
+    time.sleep(1)
+    turn(-1800)
+    muovi_motore_braccia()
+
+runloop.run(main())

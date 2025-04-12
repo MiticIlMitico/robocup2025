@@ -1,8 +1,8 @@
-import time
 import PicoRobotics
+import utime
+import time
 import pimoroni_i2c
 import breakout_vl53l5cx
-
 # -------------------------------------------------------------------------
 # Funzioni compatibili con ulab.numpy
 # -------------------------------------------------------------------------
@@ -45,11 +45,11 @@ def clamp(val, min_val, max_val):
 # -------------------------------------------------------------------------
 
 DISTANCE_THRESHOLD = 3000
-REFLECTANCE_THRESHOLD = 90
+REFLECTANCE_THRESHOLD = 120
 DRIVING_SPEED = 0.7
 TURNING_SPEED = 1.8
 GOAL_DISTANCE = 100.0
-SPEED_RANGE = 80.0
+SPEED_RANGE = 150.0
 
 # -------------------------------------------------------------------------
 # Inizializzazione I2C
@@ -88,6 +88,31 @@ sensor.start_ranging()
 # -------------------------------------------------------------------------
 
 while True:
+    
+    # Imposta i limiti dei servo
+    # servo spalla destra
+    servo1_min = 0   # posizione più bassa per il servo 1
+    servo1_max = 40  # posizione più alta per il servo 1
+    
+    #servo spalla sinistra
+    servo2_min = 100   # posizione più bassa per il servo 2
+    servo2_max = 50  # posizione più alta per il servo 2
+
+    # Costruisci la sequenza di andata e ritorno
+    degrees_list = list(range(servo1_max, servo1_min - 1, -1)) + list(range(servo1_min, servo1_max + 1))
+
+    for degrees in degrees_list:
+        board.servoWrite(1, degrees)
+        
+        # Mappatura inversa proporzionale per il servo 2
+        proportion = (degrees - servo1_min) / (servo1_max - servo1_min)  # tra 0 e 1
+        servo2_pos = int(servo2_max - proportion * (servo2_max - servo2_min))
+        
+        board.servoWrite(2, servo2_pos)
+
+        utime.sleep_ms(20)
+        
+        
     time.sleep(1.0 / 60)
 
     if sensor.data_ready():

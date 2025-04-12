@@ -1,0 +1,376 @@
+// === Librerie necessarie ===
+#include <Servo.h>                    // Per il controllo dei servomotori
+#include <SoftwareSerial.h>          // Per la comunicazione seriale software (Pololu)
+#include <Adafruit_Sensor.h>         // Libreria base per sensori Adafruit
+#include <Adafruit_BNO055.h>         // Libreria per il giroscopio BNO055
+#include <utility/imumaths.h>        // Math support per il BNO055
+
+// === Oggetti e pin ===
+Servo myservo;                        // Oggetto servo (non usato nel loop attuale)
+SoftwareSerial maestroSerial(19, 18); // Comunicazione con Pololu Maestro (TX, RX)
+Adafruit_BNO055 bno = Adafruit_BNO055(55); // Giroscopio IMU BNO055
+
+// Sensore ultrasuoni
+const int trigger = 4;
+const int echo = 3;
+
+// Motori - pin digitali per direzione e PWM per velocità
+const int ruotaSX_indietro = 12;
+const int ruotaSX_avanti = 13;
+const int pinPotenzaSX = 11;
+const int ruotaDX_indietro = 8;
+const int ruotaDX_avanti = 9;
+const int pinPotenzaDX = 7;
+
+const int potenza = 80;              // Potenza dei motori (limitata per maggiore controllo)
+
+// === PID Control ===
+float Kp = 2.5;                      // Guadagno proporzionale
+float Ki = 0.0;                      // Guadagno integrale
+float Kd = 0.5;                      // Guadagno derivativo
+float integral = 0;
+float previous_error = 0;
+
+// === Variabili di stato ===
+bool programmaAvviato = false;
+long durata;
+long distanza;
+
+// === Setup iniziale ===
+void setup() {
+  Serial.begin(9600);               // Debug seriale
+  maestroSerial.begin(9600);        // Comunicazione con Pololu Maestro
+
+  Serial3.begin(9600);              // Comunicazione Bluetooth MASTER (HC-05)
+
+  // Setup sensore ultrasuoni
+  pinMode(trigger, OUTPUT);
+  pinMode(echo, INPUT);
+  digitalWrite(trigger, LOW);      // Reset segnale trigger
+  delay(50);
+
+  // Setup pin motori
+  pinMode(ruotaSX_indietro, OUTPUT);
+  pinMode(ruotaSX_avanti, OUTPUT);
+  pinMode(pinPotenzaSX, OUTPUT);
+  pinMode(ruotaDX_indietro, OUTPUT);
+  pinMode(ruotaDX_avanti, OUTPUT);
+  pinMode(pinPotenzaDX, OUTPUT);
+
+  fermaMotori();                    // Arresta tutto all'inizio
+
+  // Setup giroscopio
+  if (!bno.begin()) {
+    Serial.println("Errore nel rilevare il BNO055");
+    while (1);                      // Blocco se non viene trovato
+  }
+
+  bno.setExtCrystalUse(true);       // Migliora la precisione del sensore
+  Serial.println("BNO055 pronto.");
+  myservo.write(30);                // Posizione iniziale servomotore (placeholder)
+}
+
+// === Ferma tutti i motori ===
+void fermaMotori() {
+  digitalWrite(ruotaSX_indietro, LOW);
+  digitalWrite(ruotaSX_avanti, LOW);
+  analogWrite(pinPotenzaSX, 0);
+  digitalWrite(ruotaDX_indietro, LOW);
+  digitalWrite(ruotaDX_avanti, LOW);
+  analogWrite(pinPotenzaDX, 0);
+}
+
+// === Movimento avanti senza PID ===
+void dritto(int secondi) {
+  digitalWrite(ruotaSX_indietro, LOW);
+  digitalWrite(ruotaSX_avanti, HIGH);
+  analogWrite(pinPotenzaSX, potenza);
+
+  digitalWrite(ruotaDX_indietro, LOW);
+  digitalWrite(ruotaDX_avanti, HIGH);
+  analogWrite(pinPotenzaDX, potenza);
+
+  delay(secondi * 1000);
+  fermaMotori();
+}
+
+// === Movimento indietro senza PID ===
+void indietro(int secondi) {
+  digitalWrite(ruotaSX_indietro, HIGH);
+  digitalWrite(ruotaSX_avanti, LOW);
+  analogWrite(pinPotenzaSX, potenza);
+
+  digitalWrite(ruotaDX_indietro, HIGH);
+  digitalWrite(ruotaDX_avanti, LOW);
+  analogWrite(pinPotenzaDX, potenza);
+
+  delay(secondi * 1000);
+  fermaMotori();
+}
+
+// === Rotazione precisa su se stesso con PID ===
+void ruota_se_stesso_preciso(float angoloTarget, bool destra) {
+  sensors_event_t orientationData;
+  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  float angoloIniziale = orientationData.orientation.x;
+
+  float angoloDesiderato = destra
+    ? fmod(angoloIniziale + angoloTarget, 360)
+    : fmod(angoloIniziale - angoloTarget + 360, 360);
+
+  float errore = 0;
+  unsigned long tempoPrecedente = millis();
+
+  while (true) {
+    bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+    float angoloAttuale = orientationData.orientation.x;
+    errore = angoloDesiderato - angoloAttuale;
+
+    if (errore > 180) errore -= 360;
+    if (errore < -180) errore += 360;
+    if (abs(errore) < 0.5) break;
+
+    unsigned long tempoAttuale = millis();
+    float deltaTempo = (tempoAttuale - tempoPrecedente) / 1000.0;
+    integral += errore * deltaTempo;
+    float derivative = (errore - previous_error) / deltaTempo;
+    float output = Kp * errore + Ki * integral + Kd * derivative;
+
+    previous_error = errore;
+    tempoPrecedente = tempoAttuale;
+
+    output = constrain(output, -255, 255);
+    int velocita = abs((int)output);
+    velocita = constrain(velocita, 30, 255);
+
+    if (output > 0) {
+      // Ruota a destra
+      digitalWrite(ruotaSX_indietro, LOW);
+      digitalWrite(ruotaSX_avanti, HIGH);
+      analogWrite(pinPotenzaSX, velocita);
+
+      digitalWrite(ruotaDX_indietro, HIGH);
+      digitalWrite(ruotaDX_avanti, LOW);
+      analogWrite(pinPotenzaDX, velocita);
+    } else {
+      // Ruota a sinistra
+      digitalWrite(ruotaSX_indietro, HIGH);
+      digitalWrite(ruotaSX_avanti, LOW);
+      analogWrite(pinPotenzaSX, velocita);
+
+      digitalWrite(ruotaDX_indietro, LOW);
+      digitalWrite(ruotaDX_avanti, HIGH);
+      analogWrite(pinPotenzaDX, velocita);
+    }
+
+    delay(20);
+  }
+
+  fermaMotori();
+  integral = 0;
+  previous_error = 0;
+}
+
+// === Coreografia a rettangolo ===
+void eseguiRettangolo() {
+  dritto(4);
+  ruota_se_stesso_preciso(90, true);
+  dritto(2);
+  ruota_se_stesso_preciso(90, false);
+  indietro(4);
+  ruota_se_stesso_preciso(90, false);
+  dritto(2);
+  ruota_se_stesso_preciso(90, true);
+}
+
+// === Misura distanza con ultrasuoni ===
+void misurareDistanza() {
+  digitalWrite(trigger, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigger, LOW);
+
+  durata = pulseIn(echo, HIGH, 300000); // Timeout 300ms
+
+  if (durata > 0) {
+    distanza = durata / 29 / 2;
+    Serial.print("Distanza: ");
+    Serial.print(distanza);
+    Serial.println(" cm");
+  } else {
+    distanza = -1;
+    Serial.println("Nessun segnale rilevato!");
+  }
+}
+
+// === Movimento avanti con correzione PID ===
+void drittoPID(int secondi) {
+  sensors_event_t orientationData;
+  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  float angoloTarget = orientationData.orientation.x;
+
+  unsigned long tempoIniziale = millis();
+  unsigned long durataTotale = secondi * 1000;
+  unsigned long tempoPrecedente = millis();
+
+  while (millis() - tempoIniziale < durataTotale) {
+    bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+    float angoloAttuale = orientationData.orientation.x;
+
+    float errore = angoloTarget - angoloAttuale;
+    if (errore > 180) errore -= 360;
+    if (errore < -180) errore += 360;
+
+    unsigned long tempoAttuale = millis();
+    float deltaTempo = (tempoAttuale - tempoPrecedente) / 1000.0;
+    integral += errore * deltaTempo;
+    float derivative = (errore - previous_error) / deltaTempo;
+    float output = Kp * errore + Ki * integral + Kd * derivative;
+
+    previous_error = errore;
+    tempoPrecedente = tempoAttuale;
+
+    int basePower = potenza;
+    int correzione = constrain(output, -basePower, basePower);
+
+    int potenzaSX = constrain(basePower + correzione, 0, 255);
+    int potenzaDX = constrain(basePower - correzione, 0, 255);
+
+    digitalWrite(ruotaSX_indietro, LOW);
+    digitalWrite(ruotaSX_avanti, HIGH);
+    analogWrite(pinPotenzaSX, potenzaSX);
+
+    digitalWrite(ruotaDX_indietro, LOW);
+    digitalWrite(ruotaDX_avanti, HIGH);
+    analogWrite(pinPotenzaDX, potenzaDX);
+
+    delay(20);
+  }
+
+  fermaMotori();
+  integral = 0;
+  previous_error = 0;
+}
+
+// === Movimento indietro con correzione PID ===
+void indietroPID(int secondi) {
+  sensors_event_t orientationData;
+  bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+  float angoloTarget = orientationData.orientation.x;
+
+  unsigned long tempoIniziale = millis();
+  unsigned long durataTotale = secondi * 1000;
+  unsigned long tempoPrecedente = millis();
+
+  while (millis() - tempoIniziale < durataTotale) {
+    bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+    float angoloAttuale = orientationData.orientation.x;
+
+    float errore = angoloTarget - angoloAttuale;
+    if (errore > 180) errore -= 360;
+    if (errore < -180) errore += 360;
+
+    unsigned long tempoAttuale = millis();
+    float deltaTempo = (tempoAttuale - tempoPrecedente) / 1000.0;
+    integral += errore * deltaTempo;
+    float derivative = (errore - previous_error) / deltaTempo;
+    float output = Kp * errore + Ki * integral + Kd * derivative;
+
+    previous_error = errore;
+    tempoPrecedente = tempoAttuale;
+
+    int basePower = potenza;
+    int correzione = constrain(output, -basePower, basePower);
+
+    int potenzaSX = constrain(basePower - correzione, 0, 255);
+    int potenzaDX = constrain(basePower + correzione, 0, 255);
+
+    digitalWrite(ruotaSX_indietro, HIGH);
+    digitalWrite(ruotaSX_avanti, LOW);
+    analogWrite(pinPotenzaSX, potenzaSX);
+
+    digitalWrite(ruotaDX_indietro, HIGH);
+    digitalWrite(ruotaDX_avanti, LOW);
+    analogWrite(pinPotenzaDX, potenzaDX);
+
+    delay(20);
+  }
+
+  fermaMotori();
+  integral = 0;
+  previous_error = 0;
+}
+
+// === Loop principale: coreografia di Re Julien ===
+void loop() {
+  if (!programmaAvviato) {
+    digitalWrite(trigger, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(trigger, LOW);
+        durata = pulseIn(echo, HIGH, 300000);
+
+        if (durata > 0) {
+            distanza = durata / 29 / 2;
+            Serial.print("Distanza: ");
+            Serial.print(distanza);
+            Serial.println(" cm");
+        } else {
+            distanza = -1;
+            Serial.println("Nessun segnale rilevato!");
+        }
+
+        if (distanza <= 50 && distanza > 0) {
+            Serial.println("Ostacolo rilevato! Avvio il movimento del servo.");
+            programmaAvviato = true;
+        }
+  }
+
+  if (programmaAvviato) {
+    Serial.println("Ostacolo rilevato! Avvio cerchio.");
+    programmaAvviato = true;
+
+    // Sequenza iniziale
+    drittoPID(4);   
+    delay(2000);
+    ruota_se_stesso_preciso(90, true);
+    delay(2000);
+    drittoPID(4);
+    delay(2000);
+    ruota_se_stesso_preciso(90, false);
+    delay(2000);
+
+    Serial3.println("START"); // Segnale Bluetooth (es. attiva LED/liana)
+
+    // Ciclo coreografico ripetuto 100 volte
+    for (int i = 0; i < 100; i++) {
+      indietroPID(4);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+
+      drittoPID(4);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, true);
+      delay(2000);
+      ruota_se_stesso_preciso(90, false);
+      delay(2000);
+    }
+  }
+}

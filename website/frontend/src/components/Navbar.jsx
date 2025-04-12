@@ -2,27 +2,23 @@ import React, { useState, useEffect } from 'react';
 
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
-  const [isVisible, setIsVisible] = useState(false); // Stato per la visibilità in base allo scroll
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
       const scrollY = window.scrollY;
-      
-      // Imposta la visibilità dopo un tot di scroll (200px)
+
       if (scrollY > 700 && !isVisible) {
         setIsVisible(true);
       } else if (scrollY <= 700 && isVisible) {
         setIsVisible(false);
       }
 
-      // Cambia colore quando si supera un certo punto (50px)
       setScrolled(scrollY > 50);
     };
 
     window.addEventListener('scroll', handleScroll);
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-    };
+    return () => window.removeEventListener('scroll', handleScroll);
   }, [isVisible]);
 
   return (
@@ -38,9 +34,19 @@ const Navbar = () => {
 
           {/* Navigation Links */}
           <div className="hidden lg:flex lg:space-x-10">
-            {['Home', 'Progetto', 'Team', 'RoboCup', 'Contatti'].map((item) => (
-              <a key={item} href="#" className="text-gray-900 hover:opacity-75 inline-flex items-center px-1 pt-1 text-base font-medium">
-                {item}
+            {[
+              { label: 'Home', href: '/#home' },
+              { label: 'Progetto', href: '/#progetto' },
+              { label: 'Team', href: '/#team' },
+              { label: 'RoboCup', href: '/#robocup' },
+              { label: 'Contatti', href: '/#contatti' },
+            ].map(({ label, href }) => (
+              <a
+                key={label}
+                href={href}
+                className="text-gray-900 hover:opacity-75 inline-flex items-center px-1 pt-1 text-base font-medium"
+              >
+                {label}
               </a>
             ))}
           </div>

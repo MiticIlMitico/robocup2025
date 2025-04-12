@@ -227,7 +227,7 @@ void loop() {
         }
 
         if (distanza <= 50 && distanza > 0) {
-            Serial.println("Ostacolo rilevato! Avvio il movimento del servo.");/home/ciccio/Desktop/robocup_onstage_advanced/prova_distanza_NO/prova_distanza_NO.ino
+            Serial.println("Ostacolo rilevato! Avvio il movimento del servo.");
             programmaAvviato = true;
         }
   }

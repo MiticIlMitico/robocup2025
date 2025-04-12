@@ -129,3 +129,28 @@
     fill: #00511c; 
   }
   
+
+
+
+  @media screen and (max-width: 768px) {
+    .icon-1 {
+      width: 100px; /* più piccola */
+      right: 10px;  /* meglio centrata su mobile */
+    }
+  
+    .icon-2 {
+      width: 100px;
+      left: 20px;
+    }
+  
+    .icon-3 {
+      width: 100px;
+      left: 10px;
+    }
+  
+    .liane_div {
+      top: 5px;
+    }
+  }
+  
+  
